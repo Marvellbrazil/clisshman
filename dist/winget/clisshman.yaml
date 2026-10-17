@@ -8,8 +8,8 @@ ShortDescription: A fast and robust CLI & TUI SSH connection manager in Rust
 Installers:
   - Architecture: x64
     InstallerType: portable
-    InstallerUrl: https://github.com/marvell/clisshman/releases/download/v0.1.0/clisshman-x86_64-pc-windows-msvc.zip
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerUrl: https://github.com/Marvellbrazil/clisshman/releases/download/v0.1.0/clisshman-x86_64-pc-windows-msvc.zip
+    InstallerSha256: 33371587D3CFBC0970FEB9575291BA81AB9503CCF229DC0E382CC8B2C74D59DF
     Commands:
       - clisshman
 ManifestType: singleton

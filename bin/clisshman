@@ -26,7 +26,28 @@ let binPath = "";
 try {
   binPath = require.resolve(`${pkgName}/bin/${binaryName}`);
 } catch (e) {
-  binPath = path.join(__dirname, binaryName);
+  const localNpmPath = path.join(
+    __dirname,
+    "..",
+    "npm",
+    `${platform}-${arch}`,
+    "bin",
+    binaryName,
+  );
+  const targetReleasePath = path.join(
+    __dirname,
+    "..",
+    "target",
+    "release",
+    binaryName,
+  );
+  if (fs.existsSync(localNpmPath)) {
+    binPath = localNpmPath;
+  } else if (fs.existsSync(targetReleasePath)) {
+    binPath = targetReleasePath;
+  } else {
+    binPath = path.join(__dirname, binaryName);
+  }
 }
 
 const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });

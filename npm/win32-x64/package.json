@@ -1,0 +1,12 @@
+{
+  "name": "clisshman-win32-x64",
+  "version": "0.1.0",
+  "description": "Windows x64 binary for clisshman",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "license": "MIT OR Apache-2.0"
+}

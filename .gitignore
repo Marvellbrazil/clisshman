@@ -1,4 +1,8 @@
+# .gitignore
 target/
 **/*.rs.bk
 .remember/
 *.log
+npm/*/bin/
+dist/*.zip
+dist/*.tar.gz
