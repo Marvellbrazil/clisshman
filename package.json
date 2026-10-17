@@ -1,0 +1,22 @@
+{
+  "name": "clisshman",
+  "version": "0.1.0",
+  "description": "A fast and robust CLI & TUI SSH connection manager in Rust",
+  "bin": {
+    "clisshman": "./bin/clisshman"
+  },
+  "optionalDependencies": {
+    "clisshman-win32-x64": "0.1.0",
+    "clisshman-linux-x64-musl": "0.1.0",
+    "clisshman-darwin-x64": "0.1.0",
+    "clisshman-darwin-arm64": "0.1.0"
+  },
+  "keywords": [
+    "ssh",
+    "ssh-manager",
+    "cli",
+    "tui",
+    "rust"
+  ],
+  "license": "MIT OR Apache-2.0"
+}

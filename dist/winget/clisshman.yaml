@@ -1,0 +1,16 @@
+PackageIdentifier: clisshman.clisshman
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Marvell
+PackageName: clisshman
+License: MIT OR Apache-2.0
+ShortDescription: A fast and robust CLI & TUI SSH connection manager in Rust
+Installers:
+  - Architecture: x64
+    InstallerType: portable
+    InstallerUrl: https://github.com/marvell/clisshman/releases/download/v0.1.0/clisshman-x86_64-pc-windows-msvc.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    Commands:
+      - clisshman
+ManifestType: singleton
+ManifestVersion: 1.6.0
