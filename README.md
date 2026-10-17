@@ -1,10 +1,10 @@
 # clisshman
 
-Terminal SSH connection manager for Linux, macOS, and Windows. It provides a CLI, an interactive inquiry wizard, and a full TUI to manage remote host profiles, run native OpenSSH sessions, check reachability, and import or export OpenSSH configurations.
+Cross-platform SSH connection manager for Linux, macOS, and Windows written in Rust. It provides a direct CLI, an interactive inquiry wizard, and a terminal user interface (TUI) to manage remote host profiles, execute native OpenSSH sessions, verify host reachability via TCP or ICMP, and import or export OpenSSH configurations.
 
 ## Requirements
 
-- OpenSSH client (`ssh`) installed and available in your `PATH`.
+- OpenSSH client (`ssh`) available in your system `PATH`.
 - Rust 1.74 or later (if building from source).
 
 ## Installation
@@ -15,15 +15,15 @@ Terminal SSH connection manager for Linux, macOS, and Windows. It provides a CLI
 cargo install --path .
 ```
 
-### Binary Download
+### Prebuilt Binaries
 
-Compiled binaries for Linux (`x86_64-unknown-linux-musl`), macOS (`x86_64-apple-darwin`, `aarch64-apple-darwin`), and Windows (`x86_64-pc-windows-msvc`) are published on GitHub Releases.
+Binaries for Linux (`x86_64-unknown-linux-musl`), macOS (`x86_64-apple-darwin`, `aarch64-apple-darwin`), and Windows (`x86_64-pc-windows-msvc`) are attached to each GitHub release.
 
 ### npm / npx Runner
 
 ```bash
 npm install -g clisshman
-# or run directly:
+# or run directly without global installation:
 npx clisshman
 ```
 
@@ -35,10 +35,10 @@ winget install clisshman
 
 ## Modes of Operation
 
-1. **CLI Mode**: Direct commands for scripting and quick operations (`clisshman add`, `list`, `connect`).
-2. **Interactive CLI Wizard (`clisshman cli`)**: Step-by-step prompts powered by `inquire` for adding, editing, and managing connections without remembering flags.
+1. **CLI Mode**: Fast commands for direct shell use and scripts (`clisshman add`, `list`, `connect`, etc.).
+2. **Interactive Wizard (`clisshman cli`)**: Step-by-step terminal prompt interface powered by `inquire` for adding, editing, or connecting without memorizing flags.
 3. **Terminal UI (`clisshman tui`)**: Full-screen interface powered by `ratatui` and `crossterm` with live search, session inspection, TCP latency checks, and inline SSH execution.
-4. **Default Invocation (`clisshman`)**: Automatically opens the TUI if executed inside an interactive terminal (TTY), or prints help if stdout is piped.
+4. **Auto TTY Launch (`clisshman`)**: Invoking `clisshman` without arguments launches the TUI if executed inside an interactive terminal, or outputs `--help` if stdout is piped or redirected.
 
 ## CLI Usage
 
@@ -58,27 +58,27 @@ clisshman add -H db.private -u postgres -J bastion.public -d "Production databas
 ### Listing Sessions
 
 ```bash
-# Render ASCII/Unicode table
+# Formatted ANSI table
 clisshman list
 
 # Multi-criteria filter (AND logic, case-insensitive substring match)
 clisshman list -g production -t "web,debian" -u ubuntu
 
-# JSON output for scripting
+# Structured JSON output for shell automation
 clisshman list --json
 ```
 
 ### Connecting to a Session
 
 ```bash
-# Connect by numeric ID or name
+# Connect by numeric ID or session name
 clisshman connect 1
 clisshman -c web-prod
 
-# Dry-run: print the generated SSH command without running it
+# Dry-run: print the command string without spawning ssh
 clisshman connect web-prod --dry-run
 
-# Forward raw OpenSSH arguments using the double-dash separator
+# Pass arbitrary OpenSSH arguments using the double-dash separator
 clisshman connect web-prod -- -L 8080:localhost:80 -X
 ```
 
@@ -99,22 +99,22 @@ clisshman ping web-prod --timeout 5 --json
 ### Inspecting, Editing, and Deleting
 
 ```bash
-# Show detailed view
+# Show full session details
 clisshman show web-prod
 
-# Edit fields (replaces tags if provided, or clear them completely)
+# Edit specific attributes
 clisshman edit web-prod -p 2202 -t "staging,web"
 clisshman edit web-prod --clear-tags
 
-# Delete session
+# Delete session with confirmation prompt
 clisshman delete web-prod
-clisshman delete web-prod -y # Non-interactive skip confirmation
+clisshman delete web-prod -y # Skip confirmation prompt
 ```
 
 ### OpenSSH Config Import and Export
 
 ```bash
-# Export all clisshman sessions to standard ~/.ssh/config format
+# Export all sessions to standard OpenSSH config syntax
 clisshman export -o ~/.ssh/config.d/clisshman.conf
 
 # Import existing hosts from an OpenSSH config file
@@ -123,7 +123,7 @@ clisshman import ~/.ssh/config
 
 ### Shell Completions
 
-Generate auto-completion scripts for your shell:
+Generate command autocompletion scripts:
 
 ```bash
 clisshman completions bash > ~/.local/share/bash-completion/completions/clisshman
@@ -134,7 +134,7 @@ clisshman completions powershell >> $PROFILE
 
 ### Diagnostic Check
 
-Verify that OpenSSH and file storage directories are accessible:
+Verify OpenSSH binary accessibility and configuration directory permissions:
 
 ```bash
 clisshman doctor
@@ -142,19 +142,25 @@ clisshman doctor
 
 ## Configuration
 
-Stored in `config.json` inside standard OS config directories (`%APPDATA%\clisshman\config.json` on Windows, `~/.config/clisshman/config.json` on Linux, `~/Library/Application Support/clisshman/config.json` on macOS). Override the path via the `CLISSHMAN_CONFIG_DIR` environment variable.
+Settings are saved in `config.json` inside standard OS directories:
 
-Inspect and change settings via CLI:
+- **Windows**: `%APPDATA%\clisshman\config.json`
+- **Linux**: `~/.config/clisshman/config.json`
+- **macOS**: `~/Library/Application Support/clisshman/config.json`
+
+Override the directory by exporting the `CLISSHMAN_CONFIG_DIR` environment variable.
+
+Inspect and update configurations:
 
 ```bash
-# View current configuration
+# View all settings
 clisshman config
 
-# Toggle between incremental integers (1, 2, 3) and UUID v4
+# Toggle ID generation mode between integer and UUID v4
 clisshman config id_type uuid
 clisshman config id_type integer
 
-# Change defaults
+# Update defaults
 clisshman config default_port 2222
 clisshman config confirm_delete 0
 clisshman config ping_timeout_seconds 5
@@ -175,13 +181,13 @@ clisshman config ping_timeout_seconds 5
 
 ## Storage Design & Concurrency
 
-- **Atomic File Writes**: Write operations write to temporary files first (`.tmp.<pid>`) and call `fsync` before renaming over the target JSON file.
-- **File Locking**: Write operations acquire an exclusive advisory lock via `fs2` on `.lock` before modifying `sessions.json`.
-- **Hybrid ID Resolver**: When `id_type` changes, existing sessions retain their assigned IDs. The resolver routes pure integer strings to integer IDs and alphanumeric strings to short UUIDs or names.
+- **Atomic File Writes**: Serialized JSON data is written to a process-tagged temporary file (`.tmp.<pid>`), flushed to storage media with `fsync`, and atomically renamed over the target file.
+- **File Locking**: Mutating operations acquire an exclusive advisory file lock (`fs2`) on `.lock` before modifying registry files.
+- **Hybrid ID Resolver**: When switching between integer and UUID formats, existing entries preserve their identifiers. The resolver routes numeric inputs to integer IDs and alphanumeric values to UUID short prefixes or unique session names.
 
 ## License
 
-Dual-licensed under either of:
+Dual-licensed under either:
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- MIT License ([LICENSE-MIT](LICENSE-MIT))
