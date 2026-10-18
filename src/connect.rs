@@ -52,10 +52,14 @@ impl SshConnection {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            Command::new("ssh")
+            let error = Command::new("ssh")
                 .args(Self::native_args(session, passthrough))
                 .exec();
-            Err("Unable to start SSH".to_string())
+            Err(if error.kind() == std::io::ErrorKind::NotFound {
+                "Unable to start SSH: ssh was not found in PATH".to_string()
+            } else {
+                "Unable to start SSH".to_string()
+            })
         }
 
         #[cfg(not(unix))]
