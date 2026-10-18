@@ -53,6 +53,17 @@ fn state() -> TuiState {
         true,
     )
 }
+#[test]
+fn scp_action_targets_selected_session_only() {
+    let mut state = state();
+    assert_eq!(
+        state.handle_key(key(KeyCode::Char('s'))),
+        Action::Transfer("1".into())
+    );
+    state.handle_key(key(KeyCode::Tab));
+    assert_eq!(state.handle_key(key(KeyCode::Char('s'))), Action::None);
+}
+
 fn form_field(app: &mut TuiApp, index: usize, value: &str) {
     match app.state.modal.as_mut() {
         Some(Modal::Form(form)) => form.fields[index].1 = value.into(),
