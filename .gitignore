@@ -2,6 +2,7 @@
 target/
 **/*.rs.bk
 .remember/
+.claude/worktrees/
 *.log
 npm/*/bin/
 dist/*.zip
