@@ -35,6 +35,7 @@ pub enum Action {
     Delete { id: String, view: View },
     Favorite { id: String, value: bool },
     Connect(String),
+    Transfer(String),
     RunTunnel(String),
     Ping(String),
 }
@@ -565,6 +566,11 @@ impl TuiState {
                     };
                 }
             }
+            KeyCode::Char('s') if self.view == View::Sessions => {
+                if let Some(session) = self.selected_session() {
+                    return Action::Transfer(session.id);
+                }
+            }
             KeyCode::Char('p') if self.view == View::Sessions => {
                 if let Some(s) = self.selected_session() {
                     return Action::Ping(s.id);
@@ -658,7 +664,7 @@ impl TuiState {
             ])
             .split(frame.size());
         let help = match self.view {
-            View::Sessions => "a Add | e Edit | d Duplicate | x Delete | f Favorite | F Favorites | R Recent\n/ Search | Enter Connect | p Ping | t Tunnels | r Refresh | q Quit",
+            View::Sessions => "a Add | e Edit | d Duplicate | x Delete | f Favorite | F Favorites | R Recent\n/ Search | Enter Connect | s SCP | p Ping | t Tunnels | r Refresh | q Quit",
             View::Tunnels => "a Add | e Edit | x Delete | Enter Run tunnel\n/ Search | t Sessions | r Refresh | q Quit",
         };
         frame.render_widget(
@@ -912,7 +918,7 @@ impl TuiApp {
                 self.start_ping(id);
                 return Ok(());
             }
-            Action::Connect(_) | Action::RunTunnel(_) => {
+            Action::Connect(_) | Action::Transfer(_) | Action::RunTunnel(_) => {
                 return Err("Connection requires a suspended terminal".into())
             }
         };
@@ -1039,6 +1045,18 @@ impl TuiApp {
                             }
                             Action::RunTunnel(id) => {
                                 self.run_connection(&id, true, &mut terminal, &mut guard)?;
+                            }
+                            Action::Transfer(id) => {
+                                guard.suspend()?;
+                                let result = crate::wizard::transfer(&self.service, &id);
+                                guard.resume()?;
+                                terminal.clear().map_err(|e| e.to_string())?;
+                                self.state.status = match result {
+                                    Ok(code) => {
+                                        format!("SCP finished with status {code} (or cancelled)")
+                                    }
+                                    Err(error) => error,
+                                };
                             }
                             action => {
                                 let _ = self.apply_action(action);

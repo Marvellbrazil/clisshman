@@ -10,6 +10,12 @@ const path = require("node:path");
 const launcherSource = path.join(__dirname, "..", "bin", "clisshman");
 const binaryName = process.platform === "win32" ? "clisshman.exe" : "clisshman";
 
+test("both command names use the same npm launcher", () => {
+  const manifest = require("../package.json");
+  assert.strictEqual(manifest.bin.clisshman, "./bin/clisshman");
+  assert.strictEqual(manifest.bin.csm, manifest.bin.clisshman);
+});
+
 function fixture(withBinary) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "clisshman-launcher-"));
   fs.mkdirSync(path.join(root, "bin"));

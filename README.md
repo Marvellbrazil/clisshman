@@ -4,7 +4,7 @@ Cross-platform SSH connection manager for Linux, macOS, and Windows written in R
 
 ## Requirements
 
-- OpenSSH client (`ssh`) available in your system `PATH`.
+- OpenSSH client (`ssh`) available in your system `PATH`. File transfers additionally require native `scp`. Use OpenSSH 9.0+ for SFTP-based transfers.
 - A current stable Rust toolchain when building from source. This branch does not declare an MSRV.
 
 ## Installation
@@ -13,6 +13,16 @@ Cross-platform SSH connection manager for Linux, macOS, and Windows written in R
 
 ```bash
 cargo install --path .
+```
+
+Both `clisshman` and `csm` are installed by Cargo. They share the same commands, configuration, and session registry. `csm` is an executable shorthand, not a shell alias. The npm package maps both names to the same launcher when published. Existing releases and installations do not gain the shorthand until updated.
+
+```bash
+csm list
+```
+
+```bash
+csm completions bash --command-name csm
 ```
 
 ### Distribution status
@@ -148,6 +158,38 @@ Bindings default to `127.0.0.1`. Non-loopback binding requires `--allow-public-b
 
 Tunnels use native `ssh -N -o ExitOnForwardFailure=yes` and run in the foreground. Ctrl+C stops the run; there is no background daemon or automatic restart. A running listener does not prove its destination service is healthy. Delete or reassign a tunnel before deleting its referenced session.
 
+### Copy files with native SCP
+
+Upload files to an existing remote directory using a saved session's username, port, identity file, and jump host:
+
+```bash
+clisshman scp 3 --file "./report.pdf" --to "/home/deploy/uploads/"
+```
+
+```bash
+csm scp 3 -f "./report.pdf" -f "./notes.txt" --to "/home/deploy/uploads/"
+```
+
+```bash
+csm scp 3 -f "./build" --to "/var/www/" --recursive
+```
+
+Download flips the source and destination: `--file` is remote and `--to` is an existing local directory.
+
+```bash
+csm scp 3 --file "/var/log/app.log" --to "./downloads/" --download
+```
+
+```bash
+csm scp 3 --file "./report.pdf" --to "/tmp/" --dry-run --json
+```
+
+Sources use repeated `-f/--file`, not comma separation. `-g/--group` disambiguates session names. Directories require `-r/--recursive`; native SCP can follow symlinks and copy contents outside the selected tree. Paths with spaces must be quoted in your shell. Remote paths are literal POSIX paths; wildcard patterns and shell syntax are rejected. Windows UNC local paths are not supported by this wrapper.
+
+Every transfer previews its command and warns about overwrite. Confirm with `y/N` (default No); scripts must pass `-y/--yes`. Confirmation authorizes the transfer and possible overwrite, not a no-clobber guarantee. `--dry-run` validates local paths and prints a preview without contacting the server, prompting, changing history, or transferring data. `--json` is preview-only because real transfers inherit native progress and authentication prompts. The wrapper does not create remote directories, precheck remote files, or force the legacy SCP protocol. OpenSSH 9.0+ defaults to SFTP; older native clients may require different pathname handling.
+
+The interactive CLI has a Transfer files (SCP) action. In the TUI, `s` opens the same transfer prompts for the selected session, temporarily leaving full-screen mode. Native SCP handles progress, authentication, and exit status, and the TUI restores itself after completion or cancellation.
+
 ### Testing Connection (Ping)
 
 ```bash
@@ -265,6 +307,7 @@ clisshman config ping_timeout_seconds 5
 | `x` / `Delete`           | Delete, with Cancel selected by default                   |
 | `f`                      | Toggle favorite on the selected session                   |
 | `F` / `R`                | Show only favorites / only sessions with a recent attempt |
+| `s`                      | Open SCP upload/download prompts for the selected session |
 | `p`                      | TCP ping in the background without blocking the interface |
 | `r`                      | Reload from disk                                          |
 | `q` / `Esc` / `Ctrl+C`   | Quit; `Esc` first clears search or returns from tunnels   |

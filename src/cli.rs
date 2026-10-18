@@ -29,6 +29,7 @@ pub enum Commands {
     Connect(ConnectArgs),
     #[command(short_flag = 'P', long_flag = "ping")]
     Ping(PingArgs),
+    Scp(ScpArgs),
     Config(ConfigArgs),
     Cli,
     Tui,
@@ -196,6 +197,25 @@ pub struct PingArgs {
     pub timeout: Option<u64>,
 }
 
+#[derive(Args, Debug, Clone)]
+pub struct ScpArgs {
+    pub target: String,
+    #[arg(short = 'g', long)]
+    pub group: Option<String>,
+    #[arg(short = 'f', long = "file", required = true)]
+    pub files: Vec<std::path::PathBuf>,
+    #[arg(long)]
+    pub to: std::path::PathBuf,
+    #[arg(long)]
+    pub download: bool,
+    #[arg(short = 'r', long)]
+    pub recursive: bool,
+    #[arg(short = 'y', long)]
+    pub yes: bool,
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 #[derive(Args, Debug, Clone, Default)]
 pub struct ConfigArgs {
     pub key: Option<String>,
@@ -233,6 +253,8 @@ pub struct ImportArgs {
 #[derive(Args, Debug, Clone)]
 pub struct CompletionsArgs {
     pub shell: clap_complete::Shell,
+    #[arg(long, value_parser = ["clisshman", "csm"], default_value = "clisshman")]
+    pub command_name: String,
 }
 
 #[derive(Subcommand, Debug)]

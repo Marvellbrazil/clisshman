@@ -2,6 +2,7 @@
 name = "clisshman"
 version = "0.1.0"
 edition = "2021"
+default-run = "clisshman"
 authors = ["Marvell"]
 description = "Manage SSH sessions and foreground tunnels from a CLI or terminal UI"
 license = "MIT OR Apache-2.0"

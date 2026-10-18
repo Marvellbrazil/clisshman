@@ -75,8 +75,11 @@ pub fn session(value: &Session, as_json: bool) -> Result<(), String> {
     }
 }
 pub fn command(args: &[String], as_json: bool) -> Result<(), String> {
+    native_command("ssh", args, as_json)
+}
+pub fn native_command(program: &str, args: &[String], as_json: bool) -> Result<(), String> {
     if as_json {
-        return json(&serde_json::json!({"program":"ssh","args":args}));
+        return json(&serde_json::json!({"program":program,"args":args}));
     }
     let quote = |arg: &String| {
         if arg
@@ -91,7 +94,7 @@ pub fn command(args: &[String], as_json: bool) -> Result<(), String> {
         }
     };
     println!(
-        "ssh {}",
+        "{program} {}",
         args.iter().map(quote).collect::<Vec<_>>().join(" ")
     );
     Ok(())

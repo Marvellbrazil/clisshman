@@ -197,6 +197,28 @@ pub fn run(cli: Cli, service: &AppService) -> Result<i32, String> {
                 return Ok(if result.success { 0 } else { 1 });
             }
         }
+        Some(Commands::Scp(args)) => {
+            let Some(id) = target(service, Some(&args.target), args.group.as_deref(), json)? else {
+                return Ok(0);
+            };
+            let plan = crate::transfer::TransferPlan::new(&service.get(&id, None)?, &args)?;
+            if json && !args.dry_run {
+                return Err(
+                    "Use --dry-run with --json for SCP; native progress is not JSON".into(),
+                );
+            }
+            plan.preview(json)?;
+            if args.dry_run {
+                return Ok(0);
+            }
+            if confirm(
+                "Proceed with transfer and possible overwrite?",
+                args.yes,
+                json,
+            )? {
+                return plan.execute();
+            }
+        }
         Some(Commands::Config(args)) => {
             let config = match (args.key.as_deref(), args.value.as_deref()) {
                 (Some(key), Some(value)) => service.set_config(key, value)?,
@@ -215,7 +237,12 @@ pub fn run(cli: Cli, service: &AppService) -> Result<i32, String> {
         Some(Commands::Export(args)) => export(args, service, json)?,
         Some(Commands::Completions(args)) => {
             let mut command = Cli::command();
-            clap_complete::generate(args.shell, &mut command, "clisshman", &mut io::stdout());
+            clap_complete::generate(
+                args.shell,
+                &mut command,
+                args.command_name,
+                &mut io::stdout(),
+            );
         }
         Some(Commands::Doctor) => {
             let report = crate::doctor::DoctorService::run(&service.storage);

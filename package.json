@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "A fast and robust CLI & TUI SSH connection manager in Rust",
   "bin": {
-    "clisshman": "./bin/clisshman"
+    "clisshman": "./bin/clisshman",
+    "csm": "./bin/clisshman"
   },
   "optionalDependencies": {
     "clisshman-win32-x64": "0.1.0",

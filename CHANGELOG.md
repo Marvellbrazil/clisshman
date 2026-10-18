@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Native SCP upload/download with repeated file sources, recursive directory transfers, preview, overwrite confirmation, and interactive CLI/TUI access.
+- `csm` executable shorthand sharing the same commands and storage, npm command mapping, and shorthand shell completions.
 - Duplicate session with a new ID and timestamps; favorite/history resets without changing the source.
 - Favorites, recent connection attempts, fuzzy Quick connect, and an interactive picker for targetless connect.
 - Saved foreground local, remote, and dynamic SOCKS tunnel profiles with explicit non-loopback binding consent and session reference protection.
