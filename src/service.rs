@@ -1,542 +1,388 @@
-use std::io::{self, Write};
+pub use crate::selection::{resolve_session, resolve_session_index};
+use crate::{
+    cli::*,
+    config::IdType,
+    model::{generate_id, normalize_tags, Session, Tunnel, TunnelKind},
+    storage::StorageManager,
+    validation,
+};
 use chrono::Utc;
-use comfy_table::modifiers::UTF8_ROUND_CORNERS;
-use comfy_table::presets::UTF8_FULL;
-use comfy_table::{Cell, Color, ContentArrangement, Table};
-use uuid::Uuid;
 
-use crate::cli::*;
-use crate::config::IdType;
-use crate::connect::{PingService, SshConnection};
-use crate::model::{normalize_tags, Registry, Session};
-use crate::storage::StorageManager;
-
+#[derive(Clone)]
 pub struct AppService {
-    storage: StorageManager,
+    pub storage: StorageManager,
 }
 
 impl AppService {
     pub fn new(storage: StorageManager) -> Self {
         Self { storage }
     }
-
-    pub fn handle_add(&self, args: AddArgs, as_json: bool) -> Result<(), String> {
-        let mut host = args.host;
-        let mut user = args.username;
-        let mut port = args.port;
-
-        if let Some(target) = args.target {
-            let (parsed_user, parsed_host, parsed_port) = parse_target_syntax(&target)?;
-            if user.is_none() {
-                user = parsed_user;
-            }
-            if host.is_none() {
-                host = Some(parsed_host);
-            }
-            if port.is_none() && parsed_port.is_some() {
-                port = parsed_port;
-            }
-        }
-
-        let host = host.ok_or("Hostname is required (-H or user@host)".to_string())?;
-        let user = user.ok_or("Username is required (-u or user@host)".to_string())?;
-
-        let cfg = self.storage.load_config()?;
-        let port = port.unwrap_or(cfg.default_port);
-        let name = args.name.unwrap_or_else(|| format!("{}@{}", user, host));
-
-        if name.chars().all(|c| c.is_ascii_digit()) {
-            return Err("Session name cannot consist entirely of numbers".to_string());
-        }
-
-        let mut reg = self.storage.load_registry()?;
-        let group_norm = args.group.as_deref().unwrap_or("").trim().to_lowercase();
-        let name_norm = name.trim().to_lowercase();
-
-        for s in &reg.sessions {
-            let existing_group = s.group.as_deref().unwrap_or("").trim().to_lowercase();
-            let existing_name = s.name.trim().to_lowercase();
-            if existing_group == group_norm && existing_name == name_norm {
-                return Err(format!(
-                    "Session with name '{}' already exists in group '{}'",
-                    name,
-                    args.group.as_deref().unwrap_or("(none)")
-                ));
-            }
-        }
-
-        let id = match cfg.id_type {
-            IdType::Integer => {
-                let id_str = reg.next_id.to_string();
-                reg.next_id += 1;
-                id_str
-            }
-            IdType::Uuid => Uuid::new_v4().to_string(),
-        };
-
-        let tags = normalize_tags(&args.tags);
+    pub fn list(&self, filters: &ListArgs) -> Result<Vec<Session>, String> {
+        Ok(crate::selection::filtered(
+            &self.storage.load_registry()?,
+            filters,
+        ))
+    }
+    pub fn get(&self, target: &str, group: Option<&str>) -> Result<Session, String> {
+        Ok(resolve_session(&self.storage.load_registry()?, target, group)?.clone())
+    }
+    pub fn add(&self, args: AddArgs) -> Result<Session, String> {
+        let config = self.storage.load_config()?;
+        let parsed = args
+            .target
+            .as_deref()
+            .map(validation::parse_target)
+            .transpose()?;
+        let user = args
+            .username
+            .or_else(|| parsed.as_ref().and_then(|v| v.0.clone()))
+            .ok_or("Username is required (-u or user@host)")?;
+        let host = args
+            .host
+            .or_else(|| parsed.as_ref().map(|v| v.1.clone()))
+            .ok_or("Hostname is required (-H or user@host)")?;
+        let port = args
+            .port
+            .or_else(|| parsed.as_ref().and_then(|v| v.2))
+            .unwrap_or(config.default_port);
+        check_tags(&args.tags)?;
         let now = Utc::now();
-        let session = Session {
-            id: id.clone(),
+        let mut session = Session {
+            id: String::new(),
+            name: args.name.unwrap_or_else(|| format!("{user}@{host}")),
             group: args.group,
-            name,
             host,
             user,
             port,
             identity_file: args.identity_file,
             jump_host: args.jump_host,
             description: args.description,
-            tags,
+            tags: normalize_tags(&args.tags),
+            favorite: false,
+            last_connect_attempt_at: None,
             created_at: now,
             updated_at: now,
         };
-
-        reg.sessions.push(session.clone());
-        self.storage.save_registry(&reg)?;
-
-        if as_json {
-            println!("{}", serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?);
-        } else {
-            println!("Added session '{}' with ID {}", session.name, session.id);
-        }
-        Ok(())
+        validation::session(&mut session)?;
+        self.storage.update_registry(|registry| {
+            session.id = generate_id(config.id_type, &mut registry.next_id)?;
+            registry.sessions.push(session.clone());
+            Ok(session)
+        })
     }
-
-    pub fn handle_list(&self, args: ListArgs, as_json: bool) -> Result<(), String> {
-        let reg = self.storage.load_registry()?;
-        let filtered: Vec<&Session> = reg
-            .sessions
-            .iter()
-            .filter(|s| {
-                if let Some(ref g) = args.group {
-                    let g_norm = g.trim().to_lowercase();
-                    let s_group = s.group.as_deref().unwrap_or("").trim().to_lowercase();
-                    if s_group != g_norm {
-                        return false;
-                    }
-                }
-                if let Some(ref n) = args.name {
-                    if !s.name.to_lowercase().contains(&n.trim().to_lowercase()) {
-                        return false;
-                    }
-                }
-                if let Some(ref h) = args.host {
-                    if !s.host.to_lowercase().contains(&h.trim().to_lowercase()) {
-                        return false;
-                    }
-                }
-                if let Some(ref u) = args.username {
-                    if !s.user.to_lowercase().contains(&u.trim().to_lowercase()) {
-                        return false;
-                    }
-                }
-                if let Some(p) = args.port {
-                    if s.port != p {
-                        return false;
-                    }
-                }
-                if !args.tags.is_empty() {
-                    let required_tags = normalize_tags(&args.tags);
-                    for req in required_tags {
-                        if !s.tags.iter().any(|t| t.eq_ignore_ascii_case(&req)) {
-                            return false;
-                        }
-                    }
-                }
-                true
-            })
-            .collect();
-
-        if as_json {
-            println!("{}", serde_json::to_string_pretty(&filtered).map_err(|e| e.to_string())?);
-            return Ok(());
+    pub fn edit(&self, args: EditArgs) -> Result<Session, String> {
+        check_tags(&args.tags)?;
+        if (args.clear_group && args.group.is_some())
+            || (args.clear_identity && args.identity_file.is_some())
+            || (args.clear_jump && args.jump_host.is_some())
+            || (args.clear_description && args.description.is_some())
+            || (args.clear_tags && !args.tags.is_empty())
+        {
+            return Err("Cannot set and clear the same field".into());
         }
-
-        if filtered.is_empty() {
-            println!("No sessions found.");
-            return Ok(());
-        }
-
-        let mut table = Table::new();
-        table
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS)
-            .set_content_arrangement(ContentArrangement::Dynamic);
-
-        table.set_header(vec![
-            Cell::new("ID").fg(Color::Cyan),
-            Cell::new("Group").fg(Color::Cyan),
-            Cell::new("Name").fg(Color::Cyan),
-            Cell::new("Host").fg(Color::Cyan),
-            Cell::new("User").fg(Color::Cyan),
-            Cell::new("Port").fg(Color::Cyan),
-            Cell::new("Tags").fg(Color::Cyan),
-        ]);
-
-        for s in filtered {
-            let display_id = if s.id.len() > 8 && s.id.contains('-') {
-                &s.id[..8]
-            } else {
-                &s.id
+        self.storage.update_registry(|registry| {
+            let index = resolve_session_index(registry, &args.target, args.from_group.as_deref())?;
+            let s = &mut registry.sessions[index];
+            if let Some(value) = args.name {
+                s.name = value;
+            }
+            if let Some(value) = args.group {
+                s.group = Some(value);
+            }
+            if let Some(value) = args.host {
+                s.host = value;
+            }
+            if let Some(value) = args.username {
+                s.user = value;
+            }
+            if let Some(value) = args.port {
+                s.port = value;
+            }
+            if let Some(value) = args.identity_file {
+                s.identity_file = Some(value);
+            }
+            if let Some(value) = args.jump_host {
+                s.jump_host = Some(value);
+            }
+            if let Some(value) = args.description {
+                s.description = Some(value);
+            }
+            if !args.tags.is_empty() {
+                s.tags = normalize_tags(&args.tags);
+            }
+            if args.clear_tags {
+                s.tags.clear();
+            }
+            if args.clear_group {
+                s.group = None;
+            }
+            if args.clear_identity {
+                s.identity_file = None;
+            }
+            if args.clear_jump {
+                s.jump_host = None;
+            }
+            if args.clear_description {
+                s.description = None;
+            }
+            s.updated_at = Utc::now();
+            validation::session(s)?;
+            Ok(s.clone())
+        })
+    }
+    pub fn duplicate(&self, args: DuplicateArgs) -> Result<Session, String> {
+        let config = self.storage.load_config()?;
+        self.storage.update_registry(|registry| {
+            let mut copy =
+                resolve_session(registry, &args.target, args.from_group.as_deref())?.clone();
+            copy.name = args.name;
+            if let Some(value) = args.group {
+                copy.group = Some(value);
+            }
+            if let Some(value) = args.host {
+                copy.host = value;
+            }
+            if let Some(value) = args.username {
+                copy.user = value;
+            }
+            if let Some(value) = args.port {
+                copy.port = value;
+            }
+            copy.id = generate_id(config.id_type, &mut registry.next_id)?;
+            copy.created_at = Utc::now();
+            copy.updated_at = copy.created_at;
+            copy.favorite = false;
+            copy.last_connect_attempt_at = None;
+            validation::session(&mut copy)?;
+            registry.sessions.push(copy.clone());
+            Ok(copy)
+        })
+    }
+    pub fn delete(&self, target: &str, group: Option<&str>) -> Result<Session, String> {
+        self.storage.update_registry(|registry| {
+            let index = resolve_session_index(registry, target, group)?;
+            let id = &registry.sessions[index].id;
+            let dependencies: Vec<_> = registry
+                .tunnels
+                .iter()
+                .filter(|t| &t.session_id == id)
+                .map(|t| t.name.as_str())
+                .collect();
+            if !dependencies.is_empty() {
+                return Err(format!(
+                    "Session is used by tunnels: {}. Remove or move them first.",
+                    dependencies.join(", ")
+                ));
+            }
+            Ok(registry.sessions.remove(index))
+        })
+    }
+    pub fn favorite(
+        &self,
+        target: &str,
+        group: Option<&str>,
+        favorite: bool,
+    ) -> Result<Session, String> {
+        self.storage.update_registry(|registry| {
+            let index = resolve_session_index(registry, target, group)?;
+            let s = &mut registry.sessions[index];
+            s.favorite = favorite;
+            s.updated_at = Utc::now();
+            Ok(s.clone())
+        })
+    }
+    pub fn record_attempt(&self, id: &str) -> Result<Session, String> {
+        self.storage.update_registry(|registry| {
+            let index = resolve_session_index(registry, id, None)?;
+            registry.sessions[index].last_connect_attempt_at = Some(Utc::now());
+            Ok(registry.sessions[index].clone())
+        })
+    }
+    pub fn connect_returning(&self, id: &str) -> Result<i32, String> {
+        let session = self.record_attempt(id)?;
+        crate::connect::SshConnection::execute_returning(&session, &[])
+    }
+    pub fn ping(
+        &self,
+        id: &str,
+        icmp: bool,
+        seconds: Option<u64>,
+    ) -> Result<crate::connect::PingResult, String> {
+        let s = self.get(id, None)?;
+        let seconds = seconds.unwrap_or(self.storage.load_config()?.ping_timeout_seconds);
+        validation::timeout(seconds)?;
+        Ok(if icmp {
+            crate::connect::PingService::ping_icmp(&s.host, seconds)
+        } else {
+            crate::connect::PingService::ping_tcp(
+                &s.host,
+                s.port,
+                std::time::Duration::from_secs(seconds),
+            )
+        })
+    }
+    pub fn set_config(&self, key: &str, value: &str) -> Result<crate::config::AppConfig, String> {
+        self.storage.update_config(|config| {
+            match key.to_lowercase().as_str() {
+                "id_type" => {
+                    config.id_type = match value {
+                        "integer" => IdType::Integer,
+                        "uuid" => IdType::Uuid,
+                        _ => return Err("id_type must be integer or uuid".into()),
+                    }
+                }
+                "default_port" => {
+                    config.default_port = value.parse().map_err(|_| "Invalid port")?
+                }
+                "confirm_delete" => {
+                    config.confirm_delete = match value.to_lowercase().as_str() {
+                        "true" | "1" => true,
+                        "false" | "0" => false,
+                        _ => return Err("Expected true/false/1/0".into()),
+                    }
+                }
+                "ping_timeout_seconds" => {
+                    config.ping_timeout_seconds = value.parse().map_err(|_| "Invalid timeout")?
+                }
+                _ => return Err("Unknown configuration key".into()),
+            }
+            Ok(config.clone())
+        })
+    }
+    pub fn add_tunnel(&self, args: TunnelAddArgs) -> Result<Tunnel, String> {
+        let config = self.storage.load_config()?;
+        self.storage.update_registry(|registry| {
+            let session_id = resolve_session(registry, &args.session, args.group.as_deref())?
+                .id
+                .clone();
+            let now = Utc::now();
+            let tunnel = Tunnel {
+                id: generate_id(config.id_type, &mut registry.next_tunnel_id)?,
+                name: args.name.trim().to_owned(),
+                session_id,
+                kind: args.kind,
+                bind: args.bind,
+                listen_port: args.listen_port,
+                destination_host: args.destination_host,
+                destination_port: args.destination_port,
+                allow_public_bind: args.allow_public_bind,
+                created_at: now,
+                updated_at: now,
             };
-            table.add_row(vec![
-                Cell::new(display_id),
-                Cell::new(s.group.as_deref().unwrap_or("-")),
-                Cell::new(&s.name),
-                Cell::new(&s.host),
-                Cell::new(&s.user),
-                Cell::new(s.port),
-                Cell::new(s.tags.join(", ")),
-            ]);
-        }
-
-        println!("{table}");
-        Ok(())
+            validation::tunnel(&tunnel)?;
+            registry.tunnels.push(tunnel.clone());
+            Ok(tunnel)
+        })
     }
-
-    pub fn handle_show(&self, args: ShowArgs, as_json: bool) -> Result<(), String> {
-        let reg = self.storage.load_registry()?;
-        let session = resolve_session(&reg, &args.target, args.group.as_deref())?;
-
-        if as_json {
-            println!("{}", serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?);
-            return Ok(());
-        }
-
-        println!("ID:          {}", session.id);
-        println!("Name:        {}", session.name);
-        println!("Group:       {}", session.group.as_deref().unwrap_or("-"));
-        println!("Host:        {}", session.host);
-        println!("User:        {}", session.user);
-        println!("Port:        {}", session.port);
-        println!("Identity:    {}", session.identity_file.as_deref().unwrap_or("-"));
-        println!("Jump Host:   {}", session.jump_host.as_deref().unwrap_or("-"));
-        println!("Description: {}", session.description.as_deref().unwrap_or("-"));
-        println!("Tags:        {}", session.tags.join(", "));
-        println!("Created At:  {}", session.created_at.to_rfc3339());
-        println!("Updated At:  {}", session.updated_at.to_rfc3339());
-
-        Ok(())
-    }
-
-    pub fn handle_edit(&self, args: EditArgs, as_json: bool) -> Result<(), String> {
-        let mut reg = self.storage.load_registry()?;
-        let index = resolve_session_index(&reg, &args.target, args.group.as_deref())?;
-
-        if let Some(ref new_name) = args.name {
-            if new_name.chars().all(|c| c.is_ascii_digit()) {
-                return Err("Session name cannot consist entirely of numbers".to_string());
-            }
-            let target_group = args
-                .group
+    pub fn edit_tunnel(&self, args: TunnelEditArgs) -> Result<Tunnel, String> {
+        self.storage.update_registry(|registry| {
+            let index = crate::selection::resolve_tunnel_index(registry, &args.target)?;
+            let session_id = args
+                .session
                 .as_deref()
-                .or(reg.sessions[index].group.as_deref())
-                .unwrap_or("")
-                .trim()
-                .to_lowercase();
-            let new_name_norm = new_name.trim().to_lowercase();
-
-            for (i, s) in reg.sessions.iter().enumerate() {
-                if i != index {
-                    let s_group = s.group.as_deref().unwrap_or("").trim().to_lowercase();
-                    let s_name = s.name.trim().to_lowercase();
-                    if s_group == target_group && s_name == new_name_norm {
-                        return Err(format!("Session with name '{new_name}' already exists in group"));
-                    }
+                .map(|target| {
+                    resolve_session(registry, target, args.group.as_deref()).map(|s| s.id.clone())
+                })
+                .transpose()?;
+            let t = &mut registry.tunnels[index];
+            if let Some(value) = args.name {
+                t.name = value.trim().to_owned();
+            }
+            if let Some(value) = session_id {
+                t.session_id = value;
+            }
+            if let Some(value) = args.kind {
+                if value == TunnelKind::Dynamic
+                    && (args.destination_host.is_some() || args.destination_port.is_some())
+                {
+                    return Err("Dynamic tunnels do not accept destination fields".into());
+                }
+                t.kind = value;
+                if value == TunnelKind::Dynamic {
+                    t.destination_host = None;
+                    t.destination_port = None;
                 }
             }
-            reg.sessions[index].name = new_name.clone();
-        }
-
-        if let Some(new_group) = args.group {
-            reg.sessions[index].group = Some(new_group);
-        }
-        if let Some(new_host) = args.host {
-            reg.sessions[index].host = new_host;
-        }
-        if let Some(new_user) = args.username {
-            reg.sessions[index].user = new_user;
-        }
-        if let Some(new_port) = args.port {
-            reg.sessions[index].port = new_port;
-        }
-        if let Some(new_identity) = args.identity_file {
-            reg.sessions[index].identity_file = Some(new_identity);
-        }
-        if let Some(new_jump) = args.jump_host {
-            reg.sessions[index].jump_host = Some(new_jump);
-        }
-        if let Some(new_desc) = args.description {
-            reg.sessions[index].description = Some(new_desc);
-        }
-        if args.clear_tags {
-            reg.sessions[index].tags.clear();
-        } else if !args.tags.is_empty() {
-            reg.sessions[index].tags = normalize_tags(&args.tags);
-        }
-
-        reg.sessions[index].updated_at = Utc::now();
-        let updated = reg.sessions[index].clone();
-        self.storage.save_registry(&reg)?;
-
-        if as_json {
-            println!("{}", serde_json::to_string_pretty(&updated).map_err(|e| e.to_string())?);
-        } else {
-            println!("Updated session '{}' ({})", updated.name, updated.id);
-        }
-        Ok(())
-    }
-
-    pub fn handle_delete(&self, args: DeleteArgs, as_json: bool) -> Result<(), String> {
-        let mut reg = self.storage.load_registry()?;
-        let index = resolve_session_index(&reg, &args.target, args.group.as_deref())?;
-        let session = reg.sessions[index].clone();
-
-        let cfg = self.storage.load_config()?;
-        if cfg.confirm_delete && !args.yes {
-            print!(
-                "Are you sure you want to delete session '{}' ({})? [y/N]: ",
-                session.name, session.id
-            );
-            io::stdout().flush().map_err(|e| e.to_string())?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
-            let trimmed = input.trim();
-            if !trimmed.eq_ignore_ascii_case("y") && !trimmed.eq_ignore_ascii_case("yes") {
-                println!("Deletion cancelled.");
-                return Ok(());
-            }
-        }
-
-        reg.sessions.remove(index);
-        self.storage.save_registry(&reg)?;
-
-        if as_json {
-            println!("{}", serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?);
-        } else {
-            println!("Deleted session '{}' ({})", session.name, session.id);
-        }
-        Ok(())
-    }
-
-    pub fn handle_config(&self, args: ConfigArgs, as_json: bool) -> Result<(), String> {
-        let mut cfg = self.storage.load_config()?;
-        match (args.key, args.value) {
-            (None, None) => {
-                if as_json {
-                    println!("{}", serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?);
-                } else {
-                    println!("id_type:              {:?}", cfg.id_type);
-                    println!("default_port:         {}", cfg.default_port);
-                    println!("confirm_delete:       {}", cfg.confirm_delete);
-                    println!("ping_timeout_seconds: {}", cfg.ping_timeout_seconds);
+            if let Some(value) = args.bind {
+                if value != t.bind {
+                    t.allow_public_bind = false;
                 }
+                t.bind = value;
             }
-            (Some(k), None) => {
-                let key_norm = k.to_lowercase();
-                match key_norm.as_str() {
-                    "id_type" => println!("{:?}", cfg.id_type),
-                    "default_port" => println!("{}", cfg.default_port),
-                    "confirm_delete" => println!("{}", cfg.confirm_delete),
-                    "ping_timeout_seconds" => println!("{}", cfg.ping_timeout_seconds),
-                    other => return Err(format!("Unknown configuration key '{other}'")),
-                }
+            if let Some(value) = args.listen_port {
+                t.listen_port = value;
             }
-            (Some(k), Some(v)) => {
-                let key_norm = k.to_lowercase();
-                match key_norm.as_str() {
-                    "id_type" => {
-                        let v_norm = v.to_lowercase();
-                        if v_norm == "uuid" {
-                            cfg.id_type = IdType::Uuid;
-                        } else if v_norm == "integer" {
-                            cfg.id_type = IdType::Integer;
-                        } else {
-                            return Err("id_type must be 'integer' or 'uuid'".to_string());
-                        }
-                    }
-                    "default_port" => {
-                        let port = v.parse::<u16>().map_err(|_| "Port must be a number (1-65535)")?;
-                        cfg.default_port = port;
-                    }
-                    "confirm_delete" => {
-                        let b = parse_bool(&v)?;
-                        cfg.confirm_delete = b;
-                    }
-                    "ping_timeout_seconds" => {
-                        let t = v.parse::<u64>().map_err(|_| "Timeout must be a positive integer")?;
-                        cfg.ping_timeout_seconds = t;
-                    }
-                    other => return Err(format!("Unknown configuration key '{other}'")),
-                }
-                self.storage.save_config(&cfg)?;
-                if as_json {
-                    println!("{}", serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?);
-                } else {
-                    println!("Configuration updated: {k} = {v}");
-                }
+            if let Some(value) = args.destination_host {
+                t.destination_host = Some(value);
             }
-            (None, Some(_)) => {
-                return Err("Cannot provide a value without specifying a configuration key".to_string());
+            if let Some(value) = args.destination_port {
+                t.destination_port = Some(value);
             }
-        }
-        Ok(())
+            if args.allow_public_bind {
+                t.allow_public_bind = true;
+            }
+            t.updated_at = Utc::now();
+            validation::tunnel(t)?;
+            Ok(t.clone())
+        })
     }
-
-    pub fn handle_connect(&self, args: ConnectArgs) -> Result<(), String> {
-        let reg = self.storage.load_registry()?;
-        let session = resolve_session(&reg, &args.target, args.group.as_deref())?;
-
-        if args.dry_run {
-            let cmd_args = SshConnection::build_args(session, &args.passthrough);
-            println!("ssh {}", cmd_args.join(" "));
-            return Ok(());
-        }
-
-        let exit_code = SshConnection::execute(session, &args.passthrough)?;
-        if exit_code != 0 {
-            std::process::exit(exit_code);
-        }
-        Ok(())
+    pub fn get_tunnel(&self, target: &str) -> Result<Tunnel, String> {
+        let registry = self.storage.load_registry()?;
+        Ok(registry.tunnels[crate::selection::resolve_tunnel_index(&registry, target)?].clone())
     }
-
-    pub fn handle_ping(&self, args: PingArgs, as_json: bool) -> Result<(), String> {
-        let reg = self.storage.load_registry()?;
-        let session = resolve_session(&reg, &args.target, args.group.as_deref())?;
-
-        let cfg = self.storage.load_config()?;
-        let timeout_secs = args.timeout.unwrap_or(cfg.ping_timeout_seconds);
-
-        let result = if args.icmp {
-            PingService::ping_icmp(&session.host, timeout_secs)
-        } else {
-            use std::time::Duration;
-            PingService::ping_tcp(&session.host, session.port, Duration::from_secs(timeout_secs))
-        };
-
-        if as_json {
-            println!("{}", serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?);
-        } else {
-            let status = if result.success { "SUCCESS" } else { "FAILED" };
-            println!(
-                "Ping [{}] to {} (type: {}): {}",
-                status, result.target, result.ping_type, result.message
-            );
-        }
-
-        if !result.success {
-            std::process::exit(1);
-        }
-        Ok(())
+    pub fn delete_tunnel(&self, target: &str) -> Result<Tunnel, String> {
+        self.storage.update_registry(|registry| {
+            let index = crate::selection::resolve_tunnel_index(registry, target)?;
+            Ok(registry.tunnels.remove(index))
+        })
     }
-
-    pub fn handle_export(&self, args: ExportArgs) -> Result<(), String> {
-        let reg = self.storage.load_registry()?;
-        if let Some(path_str) = args.output {
-            let file = std::fs::File::create(&path_str).map_err(|e| e.to_string())?;
-            crate::impexp::SshConfigManager::export_to_writer(&reg, file)?;
-            println!("Exported {} sessions to {}", reg.sessions.len(), path_str);
-        } else {
-            let stdout = std::io::stdout();
-            crate::impexp::SshConfigManager::export_to_writer(&reg, stdout.lock())?;
-        }
-        Ok(())
+    pub fn run_tunnel_returning(&self, target: &str) -> Result<i32, String> {
+        let tunnel = self.get_tunnel(target)?;
+        let session = self.record_attempt(&tunnel.session_id)?;
+        crate::connect::SshConnection::execute_returning(&session, &tunnel_args(&tunnel)?)
     }
+}
 
-    pub fn handle_import(&self, args: ImportArgs) -> Result<(), String> {
-        let cfg = self.storage.load_config()?;
-        let mut reg = self.storage.load_registry()?;
-        let count = crate::impexp::SshConfigManager::import_from_file(&args.file, &mut reg, cfg.id_type)?;
-        self.storage.save_registry(&reg)?;
-        println!("Successfully imported {} sessions from {}", count, args.file);
-        Ok(())
-    }
-
-    pub fn handle_completions(&self, args: CompletionsArgs) -> Result<(), String> {
-        use clap::CommandFactory;
-        let mut cmd = crate::cli::Cli::command();
-        let bin_name = cmd.get_name().to_string();
-        clap_complete::generate(args.shell, &mut cmd, bin_name, &mut std::io::stdout());
+fn check_tags(tags: &[String]) -> Result<(), String> {
+    if !tags.is_empty() && normalize_tags(tags).is_empty() {
+        Err("Tags must not be entirely empty; use --clear-tags".into())
+    } else {
         Ok(())
     }
 }
 
-pub fn resolve_session<'a>(
-    reg: &'a Registry,
-    target: &str,
-    group: Option<&str>,
-) -> Result<&'a Session, String> {
-    let index = resolve_session_index(reg, target, group)?;
-    Ok(&reg.sessions[index])
-}
-
-pub fn resolve_session_index(
-    reg: &Registry,
-    target: &str,
-    group: Option<&str>,
-) -> Result<usize, String> {
-    let target_trim = target.trim();
-    let group_norm = group.map(|g| g.trim().to_lowercase());
-
-    let mut matches = Vec::new();
-    for (idx, s) in reg.sessions.iter().enumerate() {
-        if let Some(ref g) = group_norm {
-            let s_group = s.group.as_deref().unwrap_or("").trim().to_lowercase();
-            if s_group != *g {
-                continue;
-            }
+pub fn tunnel_args(tunnel: &Tunnel) -> Result<Vec<String>, String> {
+    validation::tunnel(tunnel)?;
+    let address = |value: &str| {
+        if value.contains(':') {
+            format!("[{value}]")
+        } else {
+            value.to_owned()
         }
-
-        if s.id.eq_ignore_ascii_case(target_trim) {
-            matches.push(idx);
-            continue;
+    };
+    let mut value = format!("{}:{}", address(&tunnel.bind), tunnel.listen_port);
+    if tunnel.kind != TunnelKind::Dynamic {
+        value.push_str(&format!(
+            ":{}:{}",
+            address(
+                tunnel
+                    .destination_host
+                    .as_deref()
+                    .ok_or("Missing destination")?
+            ),
+            tunnel.destination_port.ok_or("Missing destination port")?
+        ));
+    }
+    Ok(vec![
+        "-N".into(),
+        "-o".into(),
+        "ExitOnForwardFailure=yes".into(),
+        match tunnel.kind {
+            TunnelKind::Local => "-L",
+            TunnelKind::Remote => "-R",
+            TunnelKind::Dynamic => "-D",
         }
-
-        if s.id.len() > 8 && s.id.to_lowercase().starts_with(&target_trim.to_lowercase()) {
-            matches.push(idx);
-            continue;
-        }
-
-        if s.name.eq_ignore_ascii_case(target_trim) {
-            matches.push(idx);
-            continue;
-        }
-    }
-
-    match matches.len() {
-        0 => Err(format!("Session '{target}' not found")),
-        1 => Ok(matches[0]),
-        _ => Err(format!(
-            "Ambiguous target '{target}'. Found {} matching sessions. Specify ID or group flag (-g).",
-            matches.len()
-        )),
-    }
-}
-
-fn parse_target_syntax(target: &str) -> Result<(Option<String>, String, Option<u16>), String> {
-    let mut user = None;
-    let mut host = target;
-
-    if let Some((u, h)) = target.split_once('@') {
-        user = Some(u.to_string());
-        host = h;
-    }
-
-    let mut port = None;
-    if let Some((h, p)) = host.split_once(':') {
-        host = h;
-        let parsed_port = p.parse::<u16>().map_err(|_| format!("Invalid port '{p}'"))?;
-        port = Some(parsed_port);
-    }
-
-    Ok((user, host.to_string(), port))
-}
-
-fn parse_bool(val: &str) -> Result<bool, String> {
-    match val.trim().to_lowercase().as_str() {
-        "true" | "1" | "yes" | "y" => Ok(true),
-        "false" | "0" | "no" | "n" => Ok(false),
-        other => Err(format!("Invalid boolean '{other}', expected true/false/1/0")),
-    }
+        .into(),
+        value,
+    ])
 }

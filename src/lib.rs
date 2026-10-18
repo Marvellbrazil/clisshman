@@ -1,10 +1,14 @@
 pub mod cli;
 pub mod config;
 pub mod connect;
+pub mod dispatch;
 pub mod doctor;
 pub mod impexp;
 pub mod model;
+pub mod output;
+pub mod selection;
 pub mod service;
 pub mod storage;
 pub mod tui;
+pub mod validation;
 pub mod wizard;
