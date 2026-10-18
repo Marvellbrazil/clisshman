@@ -1,16 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IdType {
+    #[default]
     Integer,
     Uuid,
-}
-
-impl Default for IdType {
-    fn default() -> Self {
-        Self::Integer
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
