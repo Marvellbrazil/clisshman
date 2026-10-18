@@ -5,7 +5,7 @@ Cross-platform SSH connection manager for Linux, macOS, and Windows written in R
 ## Requirements
 
 - OpenSSH client (`ssh`) available in your system `PATH`.
-- Rust 1.74 or later (if building from source).
+- A current stable Rust toolchain when building from source. This branch does not declare an MSRV.
 
 ## Installation
 
@@ -15,30 +15,18 @@ Cross-platform SSH connection manager for Linux, macOS, and Windows written in R
 cargo install --path .
 ```
 
-### Prebuilt Binaries
+### Distribution status
 
-Binaries for Linux (`x86_64-unknown-linux-musl`), macOS (`x86_64-apple-darwin`, `aarch64-apple-darwin`), and Windows (`x86_64-pc-windows-msvc`) are attached to each GitHub release.
+Build from a checkout for the unreleased features documented below. Check [GitHub Releases](https://github.com/Marvellbrazil/clisshman/releases) for the assets available for a specific version; a source archive is not an executable.
 
-### npm / npx Runner
-
-```bash
-npm install -g clisshman
-# or run directly without global installation:
-npx clisshman
-```
-
-### Windows Package Manager (winget)
-
-```powershell
-winget install clisshman
-```
+This repository contains an npm launcher, platform-package metadata, and a winget manifest. Those files alone do not publish packages to npm or the winget catalog. The local npm development link is not evidence of a public installation. Publishing and additional binary build targets are separate release work.
 
 ## Modes of Operation
 
 1. **CLI Mode**: Fast commands for direct shell use and scripts (`clisshman add`, `list`, `connect`, etc.).
 2. **Interactive Wizard (`clisshman cli`)**: Step-by-step terminal prompt interface powered by `inquire` for adding, editing, or connecting without memorizing flags.
 3. **Terminal UI (`clisshman tui`)**: Full-screen interface powered by `ratatui` and `crossterm` with live search, session inspection, TCP latency checks, and inline SSH execution.
-4. **Auto TTY Launch (`clisshman`)**: Invoking `clisshman` without arguments launches the TUI if executed inside an interactive terminal, or outputs `--help` if stdout is piped or redirected.
+4. **Menu (`clisshman`)**: In an interactive terminal, choose CLI, TUI, or Help. First-run setup selects integer or UUID IDs without resetting an existing configuration. Without a terminal, no-argument invocation prints help and exits nonzero. Explicit commands never open a setup wizard.
 
 ## CLI Usage
 
@@ -82,6 +70,84 @@ clisshman connect web-prod --dry-run
 clisshman connect web-prod -- -L 8080:localhost:80 -X
 ```
 
+### Duplicate and Quick connect
+
+Duplicate copies connection fields, description, group, and tags. It creates a new ID and timestamps, resets favorite/history, and leaves the source unchanged. It does not copy private key files or tunnel profiles.
+
+```bash
+clisshman duplicate web-prod --name web-staging --host staging.internal --group staging
+```
+
+Use `--from-group production` to disambiguate a source name. For `edit`, `--from-group` selects the original group and `--group` sets the destination group. Set and clear flags cannot be combined for the same field.
+
+```bash
+clisshman favorite web-prod
+```
+
+```bash
+clisshman favorite web-prod --unset
+```
+
+```bash
+clisshman list --favorites
+```
+
+```bash
+clisshman list --recent --limit 10
+```
+
+```bash
+clisshman quick prod
+```
+
+```bash
+clisshman connect
+```
+
+Quick connect requires an interactive terminal. Search matches name, group, host, username, and tags with fuzzy matching. For equally strong matches, favorites precede recent attempts, then names and IDs give a stable order. Commands with an explicit target still resolve an exact ID, UUID prefix of at least eight characters, or exact case-insensitive name. Ambiguous names open a picker only in an interactive terminal without `--json`; scripts must specify an unambiguous target.
+
+`last_connect_attempt_at` records an attempt before launching SSH, not a successful login. Dry-runs, ping, and cancelled selections do not change it. Favorites and history stay in the local registry and JSON backups; no telemetry is sent.
+
+### Saved foreground tunnels
+
+Store local (`-L`), remote (`-R`), or dynamic SOCKS (`-D`) forwarding profiles linked to a session ID.
+
+```bash
+clisshman tunnel add --name database --session web-prod --kind local --listen-port 15432 --destination-host db.internal --destination-port 5432
+```
+
+```bash
+clisshman tunnel add --name socks --session web-prod --kind dynamic --listen-port 1080
+```
+
+```bash
+clisshman tunnel list
+```
+
+```bash
+clisshman tunnel show database
+```
+
+```bash
+clisshman tunnel edit database --listen-port 15433
+```
+
+```bash
+clisshman tunnel run database --dry-run
+```
+
+```bash
+clisshman tunnel run database
+```
+
+```bash
+clisshman tunnel delete database
+```
+
+Bindings default to `127.0.0.1`. Non-loopback binding requires `--allow-public-bind`; the listener may then be reachable from other machines. Remote forwarding remains subject to SSH server policy, including `GatewayPorts`. Dynamic profiles do not accept destination fields. Local and remote profiles require both destination host and port.
+
+Tunnels use native `ssh -N -o ExitOnForwardFailure=yes` and run in the foreground. Ctrl+C stops the run; there is no background daemon or automatic restart. A running listener does not prove its destination service is healthy. Delete or reassign a tunnel before deleting its referenced session.
+
 ### Testing Connection (Ping)
 
 ```bash
@@ -121,6 +187,24 @@ clisshman export -o ~/.ssh/config.d/clisshman.conf
 clisshman import ~/.ssh/config
 ```
 
+SSH import accepts concrete `Host` aliases with `HostName`, `User`, `Port`, `IdentityFile`, and `ProxyJump`. Unsupported directives and patterns fail explicitly rather than silently changing their meaning. Supply a `User`; Clisshman never invents `root`. Quoted identity paths are supported. Export generates unique safe aliases when display names cannot be used literally.
+
+Import previews conflicts. Overwriting an existing session requires `y/N` confirmation (default No), or `--yes` in scripts, and preserves its ID, creation time, favorite/history, and tunnel references. A changed registry during preview aborts the operation. Existing export files also require confirmation or `--yes`. Parent directories must already exist. Clisshman does not edit `~/.ssh/config` automatically.
+
+```bash
+clisshman import ~/.ssh/config --dry-run
+```
+
+```bash
+clisshman export --format json -o clisshman-backup.json
+```
+
+```bash
+clisshman import clisshman-backup.json --format json --dry-run
+```
+
+JSON backups include tags, favorites, attempt timestamps, and tunnels. Restoring into another registry remaps incoming IDs to avoid collisions and updates tunnel references. Existing tunnel-name conflicts abort without partial changes. SSH export cannot preserve all Clisshman metadata.
+
 ### Shell Completions
 
 Generate command autocompletion scripts:
@@ -134,7 +218,7 @@ clisshman completions powershell >> $PROFILE
 
 ### Diagnostic Check
 
-Verify OpenSSH binary accessibility and configuration directory permissions:
+Check OpenSSH availability, the resolved storage path, and readable configuration schemas:
 
 ```bash
 clisshman doctor
@@ -144,9 +228,11 @@ clisshman doctor
 
 Settings are saved in `config.json` inside standard OS directories:
 
-- **Windows**: `%APPDATA%\clisshman\config.json`
-- **Linux**: `~/.config/clisshman/config.json`
-- **macOS**: `~/Library/Application Support/clisshman/config.json`
+- **Windows**: `%APPDATA%\clisshman\clisshman\config\config.json`
+- **Linux**: `$XDG_CONFIG_HOME/clisshman/config.json`, falling back to `~/.config/clisshman/config.json`
+- **macOS**: `~/Library/Application Support/com.clisshman.clisshman/config.json`
+
+Run `clisshman doctor` to see the resolved path. `sessions.json` is stored beside `config.json`. The diagnostic command checks availability and readable schemas without creating files; saving operations check write permissions.
 
 Override the directory by exporting the `CLISSHMAN_CONFIG_DIR` environment variable.
 
@@ -168,22 +254,52 @@ clisshman config ping_timeout_seconds 5
 
 ## TUI Keybindings
 
-| Key                             | Action                                |
-| ------------------------------- | ------------------------------------- |
-| `Up` / `k`                      | Move cursor up                        |
-| `Down` / `j`                    | Move cursor down                      |
-| `/`                             | Enter search filter mode              |
-| `Enter` / `Esc` (during search) | Exit search mode and focus list       |
-| `Enter` (on list)               | Connect to selected SSH session       |
-| `p`                             | Run TCP ping test on selected session |
-| `r`                             | Reload sessions from disk             |
-| `q` / `Esc`                     | Quit TUI                              |
+| Key                      | Action                                                    |
+| ------------------------ | --------------------------------------------------------- |
+| `Up` / `k`, `Down` / `j` | Move the selection                                        |
+| `/`                      | Fuzzy search; `Enter` or `Esc` leaves search mode         |
+| `Tab` / `t`              | Switch between sessions and tunnels                       |
+| `Enter`                  | Connect to the session, or run the selected tunnel        |
+| `a` / `e`                | Add or edit the selected session or tunnel                |
+| `d`                      | Duplicate the selected session                            |
+| `x` / `Delete`           | Delete, with Cancel selected by default                   |
+| `f`                      | Toggle favorite on the selected session                   |
+| `F` / `R`                | Show only favorites / only sessions with a recent attempt |
+| `p`                      | TCP ping in the background without blocking the interface |
+| `r`                      | Reload from disk                                          |
+| `q` / `Esc` / `Ctrl+C`   | Quit; `Esc` first clears search or returns from tunnels   |
+
+In forms, `Tab`/`Enter` and `Shift+Tab` move between fields, `Ctrl+U` clears a field, `Ctrl+S` saves, and `Esc` cancels. Selection follows the item ID across searches and reloads. SSH and tunnel runs suspend the interface and restore it when the child process exits.
 
 ## Storage Design & Concurrency
 
-- **Atomic File Writes**: Serialized JSON data is written to a process-tagged temporary file (`.tmp.<pid>`), flushed to storage media with `fsync`, and atomically renamed over the target file.
-- **File Locking**: Mutating operations acquire an exclusive advisory file lock (`fs2`) on `.lock` before modifying registry files.
-- **Hybrid ID Resolver**: When switching between integer and UUID formats, existing entries preserve their identifiers. The resolver routes numeric inputs to integer IDs and alphanumeric values to UUID short prefixes or unique session names.
+Registry and config updates hold an exclusive `.lock` across the read, validation, mutation, and atomic replacement. Unique temporary files live in the same directory, and data is synced before replacement. A failed mutation does not save partial changes. Interactive confirmations and network calls happen outside the transaction.
+
+Schema v1 loads without resetting data. The first successful write saves the original as `sessions.v1.backup.json` and persists schema v2. IDs and counters remain intact. Unknown future schemas and corrupt data fail with a recovery message rather than being overwritten. Back up the directory before switching to an older application version; older versions cannot safely edit the new schema.
+
+Session and tunnel IDs each have their own namespace and generator counter. Switching `id_type` affects new profiles only. UUID short display IDs may be ambiguous; use the full ID in that case. Names that resemble IDs are rejected. Tags split on commas, trim whitespace, deduplicate case-insensitively while keeping the first spelling, and sort A-Z case-insensitively.
+
+Native SSH handles authentication, passwords, host keys, and ssh-agent. Clisshman stores connection metadata and identity paths, not passwords or copies of private keys. Keep registry files and backups private because hostnames, usernames, and usage history may be sensitive.
+
+## Development checks
+
+```bash
+cargo fmt --check
+```
+
+```bash
+cargo clippy --all-targets -- -D warnings
+```
+
+```bash
+cargo test --locked
+```
+
+```bash
+node --test tests/npm_launcher.test.cjs
+```
+
+CI runs these checks on Windows, Linux, and macOS. Unit tests use temporary storage and local listeners rather than real SSH credentials. Terminal interaction, signal handling, and SSH server forwarding policies also need manual testing on the target shell. Git Bash/mintty and WSL can differ from native Windows terminals; use the direct CLI if terminal capabilities are unavailable.
 
 ## License
 

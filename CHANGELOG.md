@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Duplicate session with a new ID and timestamps; favorite/history resets without changing the source.
+- Favorites, recent connection attempts, fuzzy Quick connect, and an interactive picker for targetless connect.
+- Saved foreground local, remote, and dynamic SOCKS tunnel profiles with explicit non-loopback binding consent and session reference protection.
+- Registry schema v2 with backward-compatible metadata defaults and an original-file backup before migration.
+- Full JSON registry backup/import, dry-run import preview, and no-clobber export confirmation.
+- Expanded interactive session/tunnel management and cross-platform CI checks.
+
+### Fixed
+
+- Storage transactions now lock the entire read-modify-write operation instead of only the save.
+- Tags trim and deduplicate case-insensitively, then sort A-Z without changing the first spelling.
+- Shared validation checks final group/name uniqueness, nonzero ports and timeouts, safe field values, and IPv6 target syntax.
+- SSH execution separates direct CLI and returning UI lifecycles; failures do not exit the application service.
+- Import rejects unsupported SSH configuration instead of silently inventing defaults; confirmed overwrite retains existing identity metadata.
+- Noninteractive deletion requires explicit --yes, and JSON output avoids interactive prompts.
+- No-argument interactive startup offers CLI, TUI, and Help; read-only commands avoid creating storage.
+- npm launcher failures produce nonzero status instead of reporting success.
+- Documentation distinguishes local builds and package templates from published installation channels.
+
 ## [0.1.0] - 2026-03-30
 
 ### Added

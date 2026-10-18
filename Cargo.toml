@@ -3,7 +3,7 @@ name = "clisshman"
 version = "0.1.0"
 edition = "2021"
 authors = ["Marvell"]
-description = "A fast and robust CLI & TUI SSH connection manager"
+description = "Manage SSH sessions and foreground tunnels from a CLI or terminal UI"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
@@ -19,6 +19,4 @@ comfy-table = "7.1"
 crossterm = "0.27"
 ratatui = "0.26"
 inquire = "0.7"
-
-[dev-dependencies]
 tempfile = "3.10"
