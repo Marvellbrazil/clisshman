@@ -344,6 +344,30 @@ node --test tests/npm_launcher.test.cjs
 
 CI runs these checks on Windows, Linux, and macOS. Unit tests use temporary storage and local listeners rather than real SSH credentials. Terminal interaction, signal handling, and SSH server forwarding policies also need manual testing on the target shell. Git Bash/mintty and WSL can differ from native Windows terminals; use the direct CLI if terminal capabilities are unavailable.
 
+## Source layout
+
+```text
+src/
+├── main.rs, bin/csm.rs     Shared executable entry points
+├── entry.rs               Parsing and top-level exit handling
+├── cli/                   Arguments grouped by command domain
+├── dispatch/              Command routing, confirmation, import/export flows
+├── model/                 Session, tunnel, registry, IDs, and tags
+├── service/               Session, connection, tunnel, and config operations
+├── storage/               Transactions and atomic persistence
+├── connect/               Native SSH execution and TCP/ICMP checks
+├── transfer/              SCP planning, path validation, preview, and execution
+├── impexp/                SSH config parsing and export formatting
+├── selection/             Exact resolution, filters, and fuzzy ranking
+├── tui/                   State, forms, events, rendering, runtime, terminal guard
+├── wizard/                Shared prompts, onboarding, forms, and transfer flow
+├── validation.rs          Shared domain validation
+├── output.rs              Text and JSON formatting
+└── doctor.rs              Read-only diagnostics
+```
+
+Public types remain available through their existing module paths. Internal implementation modules are private; sibling helpers use module-scoped visibility. Integration tests remain under `tests/` and exercise the same public API for both executables.
+
 ## License
 
 Dual-licensed under either:

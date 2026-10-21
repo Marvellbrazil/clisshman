@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full JSON registry backup/import, dry-run import preview, and no-clobber export confirmation.
 - Expanded interactive session/tunnel management and cross-platform CI checks.
 
+### Changed
+
+- Split large source files into focused modules while preserving public imports, command behavior, and storage schemas.
+
 ### Fixed
 
 - Storage transactions now lock the entire read-modify-write operation instead of only the save.
