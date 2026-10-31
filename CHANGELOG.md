@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/Marvellbrazil/clisshman/compare/v0.1.0...v0.2.0) (2026-10-31)
+
+
+### Features
+
+* add native scp transfers and csm shorthand ([8f102a6](https://github.com/Marvellbrazil/clisshman/commit/8f102a6575f8c2ac05611802e7cf59d86b638106))
+* duplicate, quick connect, saved tunnels, and core stabilization ([#4](https://github.com/Marvellbrazil/clisshman/issues/4)) ([5fccd3b](https://github.com/Marvellbrazil/clisshman/commit/5fccd3b208c6340115b329b7895fffb508bbc836))
+
 ## [Unreleased]
 
 ### Added
