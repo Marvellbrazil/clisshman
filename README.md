@@ -31,6 +31,49 @@ Build from a checkout for the unreleased features documented below. Check [GitHu
 
 This repository contains an npm launcher, platform-package metadata, and a winget manifest. Those files alone do not publish packages to npm or the winget catalog. The local npm development link is not evidence of a public installation. Publishing and additional binary build targets are separate release work.
 
+## Agent integration
+
+The portable [clisshman Agent Skill](skills/clisshman/SKILL.md) teaches coding agents to use the installed CLI for saved profiles, reachability checks, SCP transfers, and foreground tunnels instead of silently introducing another SSH client such as Paramiko. Its [command reference](skills/clisshman/references/commands.md), [workflows](skills/clisshman/references/workflows.md), [configuration guide](skills/clisshman/references/configuration.md), and [troubleshooting guide](skills/clisshman/references/troubleshooting.md) load only when needed.
+
+The skill follows the [Agent Skills format](https://agentskills.io/specification). It is documentation, not an MCP server, and installing it does not install the clisshman binary. Agents need terminal execution access; native SSH/SCP still handle authentication. Real connections and transfers may need an interactive terminal. There is no dedicated remote-command execution/JSON-result API in this version; OpenSSH argument passthrough is not a replacement for one.
+
+### Install for your agent
+
+Copy the complete `skills/clisshman/` directory, including `references/`, into the appropriate skill directory. The result must be `<skill-directory>/clisshman/SKILL.md`, not just a standalone Markdown file. Use a project directory for project-scoped access, or a user directory for access across projects. Review an existing destination before replacing it. On Windows, `~` means your user home directory.
+
+The following discovery paths are listed by the [Skills CLI agent directory](https://github.com/vercel-labs/skills/blob/main/docs/agents.md). Host support and paths can change; check your agent's current documentation if the skill is not discovered.
+
+| Agent | Project skill directory | User skill directory |
+| --- | --- | --- |
+| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
+| Codex | `.agents/skills/` | `~/.agents/skills/` |
+| Cursor | `.agents/skills/` | `~/.cursor/skills/` |
+| Antigravity | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
+| OpenCode | `.agents/skills/` | `~/.config/opencode/skills/` |
+| GitHub Copilot | `.agents/skills/` | `~/.copilot/skills/` |
+| Gemini CLI | `.agents/skills/` | `~/.gemini/skills/` |
+| Windsurf | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
+
+Other Agent Skills-compatible tools can use the same folder in their documented discovery location. This is format compatibility, not a claim that every agent/version has been tested.
+
+Alternatively, use the third-party [Skills CLI](https://github.com/vercel-labs/skills) to select a skill and target agent. This requires a compatible Node.js installation and downloads/runs external tooling; inspect its requirements before use. Once this skill is available on the repository's default branch:
+
+```bash
+npx skills add Marvellbrazil/clisshman --skill clisshman -a claude-code
+```
+
+Replace `claude-code` with `codex`, `cursor`, `antigravity`, `opencode`, `github-copilot`, `gemini-cli`, or `windsurf` as appropriate. Installation is project-scoped by default; add `-g` for user-wide access. Installing into one host's directory does not automatically configure every other host. For an unmerged checkout, use the manual copy method above.
+
+### Activate and verify
+
+Refresh or restart the agent session if needed, confirm `clisshman` appears in its available skills, then explicitly request it. For example:
+
+> Use the clisshman skill. Find the saved production profile, inspect it, and show a JSON SSH dry-run. Do not connect or install another SSH client.
+
+Expected behavior: the agent checks the installed binary/help, discovers the profile with filtered `list --json`, selects its full ID, and runs `connect ID --dry-run --json`. It should stop with an explanation if the binary or requested capability is unavailable, not silently switch to Paramiko. Review the tool calls to confirm the behavior; loading a skill cannot force an agent to follow it.
+
+Keep the bundled references aligned with `src/cli/` and dispatch behavior when changing commands. Verify examples against installed help and use temporary storage for local checks; never use real credentials or servers merely to validate skill documentation.
+
 ## Modes of Operation
 
 1. **CLI Mode**: Fast commands for direct shell use and scripts (`clisshman add`, `list`, `connect`, etc.).
